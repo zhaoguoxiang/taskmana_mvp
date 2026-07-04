@@ -13,7 +13,9 @@ Public endpoints:
 
 from __future__ import annotations
 
+import contextlib
 import uuid
+from collections.abc import AsyncIterator
 from datetime import datetime
 from pathlib import Path
 
@@ -52,6 +54,7 @@ from auth import (
     UserLogin,
     UserResponse,
 )
+from mcp_serve import mount_mcp, MCPAuthMiddleware, mcp
 
 app = FastAPI(
     title="TaskMana MVP",
@@ -400,3 +403,22 @@ async def api_upload_image(
     filepath.write_bytes(contents)
 
     return {"url": f"/static/uploads/{filename}"}
+
+
+# ── MCP Server integration ────────────────────────────────────────────────────
+
+
+@contextlib.asynccontextmanager
+async def _app_lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Lifespan that manages the MCP session manager lifecycle."""
+    async with mcp.session_manager.run():
+        yield
+
+
+app.router.lifespan_context = _app_lifespan
+
+# Mount MCP server — this is a Starlette sub-app under /mcp.
+mount_mcp(app)
+
+# Add JWT auth middleware for MCP endpoints (validates Bearer on /mcp paths).
+app.add_middleware(MCPAuthMiddleware)
