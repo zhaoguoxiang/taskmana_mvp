@@ -2,12 +2,17 @@
 CLI management tool for TaskMana.
 
 Usage:
-    uv run python cli.py create-user    Create the admin user (interactive)
+    uv run python cli.py create-user              Create the admin user (interactive)
+    uv run python cli.py create-user --db ./x.db  Custom database path
+
+Environment:
+    TASKMANA_DB_PATH — default database path (overridden by --db)
 """
 
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -17,10 +22,10 @@ from auth import hash_password
 from sqlmodel import Session, select
 
 
-def cmd_create_user() -> None:
+def cmd_create_user(db_path: str | None = Nonedb_path: str | None = None) -> None:
     """Interactive user creation.  Single-user mode — rejects if a user already exists."""
     # Ensure DB is set up so the user table exists.
-    init_db()
+    init_db(db_path)
 
     engine = get_engine()
     with Session(engine) as session:
@@ -68,6 +73,7 @@ def cmd_create_user() -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="TaskMana CLI")
+    parser.add_argument("--db", default=os.getenv("TASKMANA_DB_PATH"), help="SQLite database path")
     sub = parser.add_subparsers(dest="command")
 
     sub.add_parser("create-user", help="Create the admin user")
@@ -75,7 +81,7 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.command == "create-user":
-        cmd_create_user()
+        cmd_create_user(args.db)
     else:
         parser.print_help()
         sys.exit(1)

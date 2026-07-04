@@ -28,7 +28,8 @@ RUN mkdir -p /app/data /app/uploads
 
 # Set environment
 ENV PATH="/app/.venv/bin:$PATH" \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    TASKMANA_DB_PATH=/app/data/taskmana.db
 
 EXPOSE 8000
 

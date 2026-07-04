@@ -5,6 +5,8 @@ services:
   taskmana:
     build:
       dockerfile: Dockerfile.dev
+    environment:
+      - TASKMANA_DB_PATH=/app/data/taskmana.db
     volumes:
       - .:/app
       - taskmana_data:/app/data

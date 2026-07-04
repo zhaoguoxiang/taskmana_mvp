@@ -9,7 +9,8 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen
 
 ENV PATH="/app/.venv/bin:$PATH" \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    TASKMANA_DB_PATH=/app/data/taskmana.db
 
 EXPOSE 8000
 
