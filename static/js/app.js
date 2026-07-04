@@ -1130,6 +1130,10 @@ async function openMdEditorForTask(taskId, field) {
       upload: {
         url: '/api/images',
         fieldName: 'file',
+        headers: (() => {
+          const token = API.getToken();
+          return token ? { Authorization: 'Bearer ' + token } : {};
+        })(),
         format: (files, responseText) => {
           const res = JSON.parse(responseText);
           const data = { msg: '', code: 0, data: { errFiles: [], succMap: {} } };
