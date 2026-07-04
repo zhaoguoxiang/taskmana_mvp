@@ -22,7 +22,7 @@ from auth import hash_password
 from sqlmodel import Session, select
 
 
-def cmd_create_user(db_path: str | None = Nonedb_path: str | None = None) -> None:
+def cmd_create_user(db_path: str | None = None) -> None:
     """Interactive user creation.  Single-user mode — rejects if a user already exists."""
     # Ensure DB is set up so the user table exists.
     init_db(db_path)
