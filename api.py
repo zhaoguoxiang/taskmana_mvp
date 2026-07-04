@@ -1,9 +1,14 @@
 """
 FastAPI application — REST API for Task and Link CRUD.
 
-8 endpoints total:
-  Task:  GET /tasks/{id}  POST /tasks  PATCH /tasks/{id}  DELETE /tasks/{id}
-  Link:  GET /links/{id}  POST /links  PATCH /links/{id}  DELETE /links/{id}
+Protected endpoints (require Bearer token):
+  Task:  GET /tasks  POST /tasks  GET/PATCH/DELETE /tasks/{id}
+  Link:  GET /links  POST /links  GET/PATCH/DELETE /links/{id}
+  Audit: GET /audit  GET /audit/{id}
+  Image: POST /api/images
+
+Public endpoints:
+  POST /auth/login  GET /auth/me  GET /
 """
 
 from __future__ import annotations
@@ -12,14 +17,17 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import FastAPI, Depends, HTTPException, UploadFile, File
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+from slowapi.middleware import SlowAPIMiddleware
 from sqlmodel import Session
 
 from database import get_session
-from model import Task, Link, AuditLog, TaskStatus, TaskType, LinkType
+from model import Task, Link, AuditLog, User, TaskStatus, TaskType, LinkType
 from service import (
     create_task,
     list_tasks,
@@ -35,12 +43,27 @@ from service import (
     read_audit_log,
 )
 from audit import task_to_dict, link_to_dict
+from auth import (
+    get_current_user,
+    get_optional_user,
+    hash_password,
+    verify_password,
+    create_access_token,
+    UserLogin,
+    UserResponse,
+)
 
 app = FastAPI(
     title="TaskMana MVP",
     description="Graph-based task management — tasks are nodes, links are edges.",
     version="0.1.0",
 )
+
+# ── Rate limiter ─────────────────────────────────────────────────────────────
+
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_middleware(SlowAPIMiddleware)
 
 # ── Static files ──────────────────────────────────────────────────────────────
 
@@ -108,6 +131,47 @@ class LinkUpdate(BaseModel):
     note: str | None = None
 
 
+# ── Auth ──────────────────────────────────────────────────────────────────────
+
+
+@app.post("/auth/login")
+@limiter.limit("5/minute")
+def api_login(
+    request: Request,
+    body: UserLogin,
+    session: Session = Depends(get_session),
+):
+    """POST — authenticate and receive a JWT Bearer token.
+
+    Rate limited to 5 attempts per minute per IP.
+    """
+    from sqlmodel import select as _select
+    user = session.exec(_select(User).where(User.username == body.username)).first()
+    if user is None or not verify_password(body.password, user.password_hash):
+        raise HTTPException(401, "Invalid username or password")
+
+    token = create_access_token(data={"sub": str(user.id)})
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "user": UserResponse(
+            id=user.id,
+            username=user.username,
+            created_at=user.created_at.isoformat() if user.created_at else "",
+        ).model_dump(),
+    }
+
+
+@app.get("/auth/me")
+def api_me(current_user: User = Depends(get_current_user)):
+    """GET — return the current authenticated user's info."""
+    return UserResponse(
+        id=current_user.id,
+        username=current_user.username,
+        created_at=current_user.created_at.isoformat() if current_user.created_at else "",
+    ).model_dump()
+
+
 # ── Response helpers ───────────────────────────────────────────────────────────
 
 
@@ -120,13 +184,20 @@ _link_dict = link_to_dict
 
 
 @app.get("/tasks")
-def api_list_tasks(session: Session = Depends(get_session)):
+def api_list_tasks(
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
     """GET — list all tasks, newest first."""
     return [_task_dict(t) for t in list_tasks(session)]
 
 
 @app.get("/tasks/{task_id}")
-def api_read_task(task_id: int, session: Session = Depends(get_session)):
+def api_read_task(
+    task_id: int,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
     """GET — read a task by id."""
     task = read_task(session, task_id)
     if task is None:
@@ -135,14 +206,23 @@ def api_read_task(task_id: int, session: Session = Depends(get_session)):
 
 
 @app.post("/tasks", status_code=201)
-def api_create_task(body: TaskCreate, session: Session = Depends(get_session)):
+def api_create_task(
+    body: TaskCreate,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
     """POST — create a new task."""
     task = create_task(session, **body.model_dump())
     return _task_dict(task)
 
 
 @app.patch("/tasks/{task_id}")
-def api_update_task(task_id: int, body: TaskUpdate, session: Session = Depends(get_session)):
+def api_update_task(
+    task_id: int,
+    body: TaskUpdate,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
     """PATCH — update mutable fields on a task."""
     fields = {k: v for k, v in body.model_dump().items() if v is not None}
     if not fields:
@@ -154,7 +234,11 @@ def api_update_task(task_id: int, body: TaskUpdate, session: Session = Depends(g
 
 
 @app.delete("/tasks/{task_id}")
-def api_delete_task(task_id: int, session: Session = Depends(get_session)):
+def api_delete_task(
+    task_id: int,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
     """DELETE — hard-delete a task and all its links."""
     ok = delete_task(session, task_id)
     if not ok:
@@ -166,7 +250,10 @@ def api_delete_task(task_id: int, session: Session = Depends(get_session)):
 
 
 @app.get("/links")
-def api_list_links(session: Session = Depends(get_session)):
+def api_list_links(
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
     """GET — list all links, newest first."""
     return [_link_dict(lnk) for lnk in list_links(session)]
 
@@ -203,6 +290,7 @@ def api_list_audit_logs(
     entity_id: int | None = None,
     action: str | None = None,
     limit: int = 100,
+    current_user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ):
     """GET — list audit logs, newest first.  Filter by entity_type, entity_id, action."""
@@ -217,7 +305,11 @@ def api_list_audit_logs(
 
 
 @app.get("/audit/{audit_id}")
-def api_read_audit_log(audit_id: int, session: Session = Depends(get_session)):
+def api_read_audit_log(
+    audit_id: int,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
     """GET — read a single audit log by id."""
     log = read_audit_log(session, audit_id)
     if log is None:
@@ -226,7 +318,11 @@ def api_read_audit_log(audit_id: int, session: Session = Depends(get_session)):
 
 
 @app.get("/links/{link_id}")
-def api_read_link(link_id: int, session: Session = Depends(get_session)):
+def api_read_link(
+    link_id: int,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
     """GET — read a link by id."""
     link = read_link(session, link_id)
     if link is None:
@@ -235,7 +331,11 @@ def api_read_link(link_id: int, session: Session = Depends(get_session)):
 
 
 @app.post("/links", status_code=201)
-def api_create_link(body: LinkCreate, session: Session = Depends(get_session)):
+def api_create_link(
+    body: LinkCreate,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
     """POST — create a link between two tasks."""
     link, err = create_link(session, **body.model_dump())
     if err:
@@ -245,7 +345,12 @@ def api_create_link(body: LinkCreate, session: Session = Depends(get_session)):
 
 
 @app.patch("/links/{link_id}")
-def api_update_link(link_id: int, body: LinkUpdate, session: Session = Depends(get_session)):
+def api_update_link(
+    link_id: int,
+    body: LinkUpdate,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
     """PATCH — update a link's note."""
     link = update_link(session, link_id, note=body.note)
     if link is None:
@@ -254,7 +359,11 @@ def api_update_link(link_id: int, body: LinkUpdate, session: Session = Depends(g
 
 
 @app.delete("/links/{link_id}")
-def api_delete_link(link_id: int, session: Session = Depends(get_session)):
+def api_delete_link(
+    link_id: int,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
     """DELETE — hard-delete a link."""
     link, err = delete_link(session, link_id)
     if err:
@@ -266,7 +375,10 @@ def api_delete_link(link_id: int, session: Session = Depends(get_session)):
 
 
 @app.post("/api/images")
-async def api_upload_image(file: UploadFile = File(...)):
+async def api_upload_image(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+):
     """POST — upload an image for use in Markdown fields.
 
     Returns {"url": "/static/uploads/<uuid>.<ext>"}.

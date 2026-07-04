@@ -26,11 +26,89 @@ let cyInstance = null;
 
 document.addEventListener('DOMContentLoaded', () => {
   initTheme();
-  initModals();
-  initTabs();
-  initTaskForm();
-  refreshTaskList();
+  initAuth();
+  initLoginForm();
 });
+
+/* ── Auth ─────────────────────────────────────────────────────────────── */
+function initAuth() {
+  // Listen for 401 responses (token expired / invalid)
+  window.addEventListener('taskmana:unauthorized', () => {
+    showLogin();
+  });
+
+  // Logout button
+  document.getElementById('btn-logout').addEventListener('click', () => {
+    API.clearToken();
+    showLogin();
+  });
+
+  // Check existing token
+  if (API.isAuthenticated()) {
+    // Validate token by calling /auth/me
+    API.me().then(user => {
+      API.setUser(user);
+      showApp(user);
+    }).catch(() => {
+      showLogin();
+    });
+  } else {
+    showLogin();
+  }
+}
+
+function initLoginForm() {
+  const form = document.getElementById('login-form');
+  const errorEl = document.getElementById('login-error');
+  const submitBtn = document.getElementById('login-submit');
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const username = document.getElementById('login-username').value.trim();
+    const password = document.getElementById('login-password').value;
+
+    if (!username || !password) return;
+
+    submitBtn.disabled = true;
+    submitBtn.textContent = '登录中…';
+    errorEl.hidden = true;
+
+    try {
+      const resp = await API.login(username, password);
+      API.setToken(resp.access_token);
+      API.setUser(resp.user);
+      showApp(resp.user);
+    } catch (err) {
+      errorEl.textContent = err.message || '登录失败';
+      errorEl.hidden = false;
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = '登 录';
+    }
+  });
+}
+
+function showLogin() {
+  document.getElementById('login-page').hidden = false;
+  document.getElementById('app-root').hidden = true;
+  // Kill graph if running
+  if (cyInstance) { cyInstance.destroy(); cyInstance = null; }
+}
+
+function showApp(user) {
+  document.getElementById('login-page').hidden = true;
+  document.getElementById('app-root').hidden = false;
+  document.getElementById('header-username').textContent = user?.username || '';
+
+  // Lazy init: only set up modals/tabs if not already done
+  if (!document.getElementById('app-root').dataset.initialized) {
+    document.getElementById('app-root').dataset.initialized = '1';
+    initModals();
+    initTabs();
+    initTaskForm();
+  }
+  refreshTaskList();
+}
 
 /* ── Theme Toggle ─────────────────────────────────────────────────────── */
 function initTheme() {

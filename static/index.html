@@ -13,6 +13,31 @@
 </head>
 <body>
 
+<!-- ═══ Login Page ═══ -->
+<div id="login-page">
+  <div class="login-container">
+    <div class="login-card">
+      <h1 class="login-logo"><span>⚡</span> TaskMana</h1>
+      <p class="login-subtitle">登录以继续</p>
+      <form id="login-form" autocomplete="off">
+        <div class="login-field">
+          <label>用户名</label>
+          <input type="text" id="login-username" placeholder="输入用户名" required autofocus>
+        </div>
+        <div class="login-field">
+          <label>密码</label>
+          <input type="password" id="login-password" placeholder="输入密码" required>
+        </div>
+        <div id="login-error" class="login-error" hidden></div>
+        <button type="submit" class="btn btn-primary btn-login" id="login-submit">登 录</button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ App Root (hidden until login) ═══ -->
+<div id="app-root" hidden>
+
 <!-- ═══ Header ═══ -->
 <header class="app-header">
   <h1 class="app-logo"><span class="app-logo-icon">⚡</span> TaskMana</h1>
@@ -21,8 +46,10 @@
     <button class="tab" data-view="graph">🔗 网络</button>
   </div>
   <div class="header-actions">
+    <span id="header-username" class="header-username"></span>
     <button class="theme-toggle" id="btn-theme" title="切换主题" aria-label="切换亮色/暗色模式">☀️</button>
     <button class="btn btn-lg btn-primary" id="btn-new-task">＋ 新建任务</button>
+    <button class="btn btn-lg btn-secondary" id="btn-logout" title="退出登录">🚪</button>
   </div>
 </header>
 
@@ -148,6 +175,8 @@
 
 <!-- ═══ Toast ═══ -->
 <div id="toast-container"></div>
+
+</div><!-- /app-root -->
 
 <!-- ═══ Scripts ═══ -->
 <script src="/static/js/cytoscape.min.js"></script>

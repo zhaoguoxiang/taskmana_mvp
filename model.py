@@ -95,3 +95,14 @@ class AuditLog(SQLModel, table=True):
     old_snapshot: Optional[str] = Field(default=None)  # JSON string, null for create
     new_snapshot: Optional[str] = Field(default=None)  # JSON string, null for delete
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class User(SQLModel, table=True):
+    """Single-user authentication table.  Managed via cli.py, not public API."""
+
+    __tablename__ = "user"
+
+    id: int = Field(default=None, primary_key=True)
+    username: str = Field(unique=True, index=True)
+    password_hash: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
