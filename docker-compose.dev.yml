@@ -1,0 +1,12 @@
+# Development override — bind-mounts source code for hot-reload
+# Usage: docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+
+services:
+  taskmana:
+    build:
+      dockerfile: Dockerfile.dev
+    volumes:
+      - .:/app
+      - taskmana_data:/app/data
+      - taskmana_uploads:/app/uploads
+    command: ["--reload"]

@@ -1,0 +1,34 @@
+# ---- Development Dockerfile with auto-reload ----
+FROM python:3.14-slim
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
+WORKDIR /app
+
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen
+
+ENV PATH="/app/.venv/bin:$PATH" \
+    PYTHONUNBUFFERED=1
+
+EXPOSE 8000
+
+COPY <<'ENTRY' /app/docker-entrypoint.sh
+#!/bin/bash
+set -e
+
+if [ -z "$TASKMANA_SECRET_KEY" ]; then
+    if [ -f /run/secrets/taskmana_secret_key ]; then
+        export TASKMANA_SECRET_KEY=$(cat /run/secrets/taskmana_secret_key)
+    else
+        echo "ERROR: TASKMANA_SECRET_KEY is required."
+        exit 1
+    fi
+fi
+
+exec python main.py --db /app/data/taskmana.db --reload "$@"
+ENTRY
+
+RUN chmod +x /app/docker-entrypoint.sh
+
+ENTRYPOINT ["/app/docker-entrypoint.sh"]

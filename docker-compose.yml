@@ -1,0 +1,19 @@
+services:
+  taskmana:
+    build: .
+    container_name: taskmana-mvp
+    restart: unless-stopped
+    ports:
+      - "${TASKMANA_PORT:-8000}:8000"
+    environment:
+      - TASKMANA_SECRET_KEY=${TASKMANA_SECRET_KEY}
+      - TASKMANA_TOKEN_EXPIRE_MINUTES=${TASKMANA_TOKEN_EXPIRE_MINUTES:-1440}
+    volumes:
+      - taskmana_data:/app/data
+      - taskmana_uploads:/app/uploads
+    # For development, mount the code directory:
+    #   docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+
+volumes:
+  taskmana_data:
+  taskmana_uploads:
