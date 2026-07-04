@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TaskMana — 任务图管理系统</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/css/style.css">
+<!-- Vditor Markdown Editor -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/vditor/dist/index.css">
+</head>
+<body>
+
+<!-- ═══ Header ═══ -->
+<header class="app-header">
+  <h1 class="app-logo"><span class="app-logo-icon">⚡</span> TaskMana</h1>
+  <div class="tab-nav">
+    <button class="tab active" data-view="kanban">📋 卡片</button>
+    <button class="tab" data-view="graph">🔗 网络</button>
+  </div>
+  <div class="header-actions">
+    <button class="theme-toggle" id="btn-theme" title="切换主题" aria-label="切换亮色/暗色模式">☀️</button>
+    <button class="btn btn-lg btn-primary" id="btn-new-task">＋ 新建任务</button>
+  </div>
+</header>
+
+<!-- ═══ Main Content ═══ -->
+<main id="app-main">
+  <!-- Filled by JS -->
+</main>
+
+<!-- ═══ Graph Container ═══ -->
+<div id="graph-container" hidden>
+  <div id="graph-cy"></div>
+  <div id="graph-legend" class="graph-legend"></div>
+</div>
+
+<!-- ═══ Modal: New / Edit Task ═══ -->
+<dialog id="modal-task" class="modal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2 id="modal-task-title">新建任务</h2>
+      <button class="btn-close" data-close="modal-task">&times;</button>
+    </div>
+    <form id="form-task" autocomplete="off">
+      <input type="hidden" id="ft-id">
+
+      <label>标题 <span class="req">*</span></label>
+      <input type="text" id="ft-title" required placeholder="任务标题…">
+
+      <label>描述</label>
+      <input type="text" id="ft-description" placeholder="任务描述…">
+
+      <div class="form-row">
+        <div class="form-col">
+          <label>类型</label>
+          <select id="ft-task-type">
+            <option value="execution">🔨 执行</option>
+            <option value="communication">💬 沟通</option>
+            <option value="composite">📦 复合</option>
+          </select>
+        </div>
+        <div class="form-col">
+          <label>状态</label>
+          <select id="ft-status">
+            <option value="todo">📋 未开始</option>
+            <option value="in_progress">🔄 进行中</option>
+            <option value="blocked">🚫 阻塞中</option>
+            <option value="done">✅ 已完成</option>
+            <option value="cancelled">❌ 已取消</option>
+            <option value="paused">⏸️ 已暂停</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-col">
+          <label>标签</label>
+          <input type="text" id="ft-tags" placeholder="逗号分隔，如 产品,路线图">
+        </div>
+        <div class="form-col">
+          <label>来源</label>
+          <input type="text" id="ft-source" placeholder="任务来源…">
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-col">
+          <label>截止时间</label>
+          <input type="datetime-local" id="ft-deadline">
+        </div>
+        <div class="form-col">
+          <label>预计耗时（分钟）</label>
+          <input type="number" id="ft-duration" min="0" placeholder="60">
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-col">
+          <label>人员</label>
+          <input type="text" id="ft-people" placeholder="逗号分隔">
+        </div>
+        <div class="form-col">
+          <label>地点</label>
+          <input type="text" id="ft-location" placeholder="会议室/远程">
+        </div>
+      </div>
+
+      <div class="form-actions">
+        <button type="button" class="btn btn-secondary" data-close="modal-task">取消</button>
+        <button type="submit" class="btn btn-primary">保存</button>
+      </div>
+    </form>
+  </div>
+</dialog>
+
+<!-- ═══ Modal: Task Detail ═══ -->
+<dialog id="modal-detail" class="modal">
+  <div class="modal-content modal-lg">
+    <div class="modal-header">
+      <h2 id="detail-title">任务详情</h2>
+      <button class="btn-close" data-close="modal-detail">&times;</button>
+    </div>
+    <div id="detail-body">
+      <!-- Filled by JS -->
+    </div>
+  </div>
+</dialog>
+
+<!-- ═══ Modal: Markdown Editor ═══ -->
+<dialog id="modal-md" class="modal modal-md">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2 id="modal-md-title">编辑</h2>
+      <button class="btn-close" data-close="modal-md">&times;</button>
+    </div>
+    <div id="md-editor-container">
+      <div class="md-editor-loading"><span class="spinner"></span> 加载编辑器…</div>
+    </div>
+    <div class="modal-md-footer">
+      <button type="button" class="btn btn-secondary" data-close="modal-md">取消</button>
+      <button type="button" class="btn btn-primary" id="btn-md-save">💾 保存</button>
+    </div>
+  </div>
+</dialog>
+
+<!-- ═══ Toast ═══ -->
+<div id="toast-container"></div>
+
+<!-- ═══ Scripts ═══ -->
+<script src="/static/js/cytoscape.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/vditor/dist/index.min.js"></script>
+<script src="/static/js/api.js"></script>
+<script src="/static/js/app.js"></script>
+</body>
+</html>
