@@ -166,12 +166,14 @@ def list_links(session: Session) -> list[Link]:
     return list(session.exec(select(Link).order_by(Link.id.desc())).all())
 
 
-def update_link(session: Session, link_id: int, *, note: str | None = None) -> Link | None:
-    """Update a Link's note.  Returns the updated Link or None if not found."""
+def update_link(session: Session, link_id: int, *, link_type: LinkType | None = None, note: str | None = None) -> Link | None:
+    """Update a Link's type or note.  Returns the updated Link or None if not found."""
     link = session.get(Link, link_id)
     if link is None:
         return None
 
+    if link_type is not None:
+        link.link_type = link_type
     link.note = note
     session.add(link)
     session.commit()

@@ -793,7 +793,7 @@ form select,
   width: 100%; height: calc(100vh - var(--header-h));
   background: var(--surface); position: relative;
 }
-#graph-cy { width: 100%; height: 100%; min-height: 400px; }
+#graph-cy { width: 100%; height: 100%; min-height: 400px; position: relative; }
 .graph-state { height: 100%; min-height: 280px; padding: 48px 20px; font-size: var(--text-base); }
 .graph-state.error { color: var(--danger); }
 
@@ -892,6 +892,130 @@ form select,
   font-size: var(--text-xs);
   color: var(--text-muted);
   margin-top: 2px;
+}
+
+/* ── Connect Mode ─────────────────────────────────────────────────────── */
+#graph-cy.graph-connect-mode {
+  cursor: crosshair;
+}
+
+.graph-ctrl-btn.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  box-shadow: 0 0 14px var(--accent-glow);
+  background: var(--sky-light);
+}
+
+.graph-connect-banner {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 160;
+  background: var(--surface);
+  border: 1.5px solid var(--accent);
+  border-radius: var(--radius-full);
+  padding: 6px 20px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text);
+  box-shadow: 0 0 20px var(--accent-glow);
+  display: none;
+  white-space: nowrap;
+  pointer-events: none;
+  animation: bannerIn .25s var(--ease-out);
+}
+.graph-connect-banner kbd {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  padding: 1px 6px;
+  border-radius: var(--radius-xs);
+  background: var(--surface-hover);
+  border: 1px solid var(--border);
+  font-weight: 500;
+}
+
+@keyframes bannerIn {
+  from { opacity: 0; transform: translateX(-50%) translateY(-8px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+/* ── Graph Popovers (Link / Edge) ─────────────────────────────────────── */
+.graph-link-popover,
+.graph-edge-popover {
+  position: absolute;
+  z-index: 250;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  padding: 14px 16px;
+  min-width: 240px;
+  max-width: 300px;
+  animation: popoverIn .2s var(--ease-out);
+  pointer-events: auto;
+}
+
+@keyframes popoverIn {
+  from { opacity: 0; transform: scale(.92); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.graph-popover-header {
+  font-size: var(--text-xs);
+  font-weight: 700;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.graph-popover-path {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 10px;
+  overflow-wrap: anywhere;
+  line-height: 1.4;
+}
+
+.graph-popover-field {
+  margin-bottom: 8px;
+}
+.graph-popover-field label {
+  display: block;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 3px;
+}
+.graph-popover-field select,
+.graph-popover-field input {
+  width: 100%;
+  padding: 6px 10px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-family: var(--font-sans);
+  transition: border-color .2s var(--ease-out);
+  box-sizing: border-box;
+}
+.graph-popover-field select:focus,
+.graph-popover-field input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--sky-light);
+}
+
+.graph-popover-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}
+.graph-popover-actions .btn {
+  flex: 1;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════

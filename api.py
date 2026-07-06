@@ -131,6 +131,7 @@ class LinkCreate(BaseModel):
 
 
 class LinkUpdate(BaseModel):
+    link_type: LinkType | None = None
     note: str | None = None
 
 
@@ -354,8 +355,8 @@ def api_update_link(
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ):
-    """PATCH — update a link's note."""
-    link = update_link(session, link_id, note=body.note)
+    """PATCH — update a link's type or note."""
+    link = update_link(session, link_id, link_type=body.link_type, note=body.note)
     if link is None:
         raise HTTPException(404, "Link not found")
     return _link_dict(link)

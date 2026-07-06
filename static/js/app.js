@@ -23,6 +23,7 @@ const CARD_DELAY_STEPS = 8;
    ═══════════════════════════════════════════════════════════════════════════ */
 let currentView = 'kanban';
 let cyInstance = null;
+let connectModeActive = false;   /* graph connect-mode toggle */
 
 document.addEventListener('DOMContentLoaded', () => {
   initTheme();
@@ -191,6 +192,8 @@ function switchView(view) {
     graph.hidden = true;
     main.hidden = false;
     if (cyInstance) { cyInstance.destroy(); cyInstance = null; }
+    connectModeActive = false;
+    _closeGraphPopover();
     refreshTaskList();
   }
 }
@@ -728,8 +731,8 @@ async function renderGraph() {
 
     container.innerHTML = '';
 
-    /* add zoom controls */
-    addGraphControls(container);
+    /* add zoom controls (attach to graph-container, not cy container) */
+    addGraphControls(document.getElementById('graph-container'));
 
     /* build legend (wrap in try-catch to not break main render) */
     try { buildGraphLegend(links); } catch (_) {}
@@ -786,6 +789,15 @@ async function renderGraph() {
         { selector: 'node.status-done',         style: { 'background-color': nodeColors.done, 'background-opacity': 0.65 } },
         { selector: 'node.status-paused',       style: { 'background-color': nodeColors.paused } },
         { selector: 'node.status-cancelled',    style: { 'background-color': nodeColors.cancelled, 'background-opacity': 0.4 } },
+        /* Connect-mode source node */
+        {
+          selector: 'node.connect-source',
+          style: {
+            'border-color': '#feca57',
+            'border-width': 4,
+            'background-opacity': 1,
+          },
+        },
         /* Hover: subtle enlarge */
         {
           selector: 'node.hover',
@@ -846,6 +858,14 @@ async function renderGraph() {
             'opacity': 0.03,
           },
         },
+        /* Edge hover — enlarge for easier clicking */
+        {
+          selector: 'edge.edge-hover',
+          style: {
+            'width': 3,
+            'opacity': 1,
+          },
+        },
         /* Edge colors by type */
         { selector: 'edge.edge-contains', style: { 'line-color': isDark ? '#7a7f90' : '#a4a8b8', 'target-arrow-color': isDark ? '#7a7f90' : '#a4a8b8' } },
         { selector: 'edge.edge-blocks',   style: { 'line-color': isDark ? '#e17055' : '#e17055', 'target-arrow-color': isDark ? '#e17055' : '#e17055', 'line-style': 'dashed', 'line-dash-pattern': [6, 8] } },
@@ -866,6 +886,7 @@ async function renderGraph() {
       minZoom: 0.2,
       maxZoom: 3,
     });
+    window.cy = cyInstance; /* expose for debugging */
 
     /* ── Obsidian-style continuous force simulation ── */
     let simRAF;
@@ -1014,11 +1035,56 @@ async function renderGraph() {
       floatingLabel.style.display = 'none';
     });
 
-    /* node click → detail modal */
+    /* node click → detail modal (or connect mode) */
     cyInstance.on('tap', 'node', evt => {
       const node = evt.target;
-      openDetailModal(node.data('taskId'));
+      if (connectModeActive) {
+        _handleConnectNodeClick(node, container);
+      } else {
+        openDetailModal(node.data('taskId'));
+      }
     });
+
+    /* edge hover — enlarge for easier clicking */
+    cyInstance.on('mouseover', 'edge', evt => {
+      if (connectModeActive) return;
+      evt.target.addClass('edge-hover');
+    });
+    cyInstance.on('mouseout', 'edge', evt => {
+      evt.target.removeClass('edge-hover');
+    });
+
+    /* edge click → edit/delete popover */
+    cyInstance.on('tap', 'edge', evt => {
+      if (connectModeActive) return;
+      const edge = evt.target;
+      _showEdgePopover(edge, evt.originalEvent, container);
+    });
+
+    /* tap on background → close popovers (but not when clicking popover itself) */
+    cyInstance.on('tap', evt => {
+      if (evt.target === cyInstance) {
+        // Don't close if the click was on a graph popover
+        const domTarget = evt.originalEvent && evt.originalEvent.target;
+        if (domTarget && domTarget.closest('.graph-link-popover, .graph-edge-popover')) return;
+        _closeGraphPopover();
+      }
+    });
+
+    /* Escape key → cancel connect mode or close popover */
+    const escHandler = (e) => {
+      if (e.key === 'Escape') {
+        if (connectModeActive) {
+          _deactivateConnectMode(container);
+          const btn = document.querySelector('#graph-container [data-connect-mode]');
+          if (btn) btn.classList.remove('active');
+        } else {
+          _closeGraphPopover();
+        }
+      }
+    };
+    document.addEventListener('keydown', escHandler);
+    cyInstance.on('destroy', () => document.removeEventListener('keydown', escHandler));
 
   } catch (e) {
     console.error('renderGraph error:', e);
@@ -1033,6 +1099,7 @@ function addGraphControls(container) {
     <button class="graph-ctrl-btn" title="放大" data-zoom="in">＋</button>
     <button class="graph-ctrl-btn" title="缩小" data-zoom="out">−</button>
     <button class="graph-ctrl-btn" title="适应画面" data-zoom="fit">⊡</button>
+    <button class="graph-ctrl-btn graph-ctrl-connect" title="连线模式" data-connect-mode>🔗</button>
   `;
   ctrls.querySelector('[data-zoom="in"]').addEventListener('click', () => {
     if (cyInstance) cyInstance.zoom(cyInstance.zoom() * 1.3);
@@ -1042,6 +1109,15 @@ function addGraphControls(container) {
   });
   ctrls.querySelector('[data-zoom="fit"]').addEventListener('click', () => {
     if (cyInstance) cyInstance.fit(undefined, 40);
+  });
+  ctrls.querySelector('[data-connect-mode]').addEventListener('click', function() {
+    const cyContainer = document.getElementById('graph-cy');
+    if (!connectModeActive) {
+      _activateConnectMode(cyContainer);
+    } else {
+      _deactivateConnectMode(cyContainer);
+    }
+    this.classList.toggle('active', connectModeActive);
   });
   container.appendChild(ctrls);
 }
@@ -1082,6 +1158,235 @@ function buildGraphLegend(links) {
   document.getElementById('legend-toggle').addEventListener('click', () => {
     container.classList.toggle('collapsed');
   });
+}
+
+/* ── Connect Mode Helpers ─────────────────────────────────────────────── */
+let _connectSourceNode = null;
+let _connectBanner = null;
+let _graphPopover = null;
+
+function _activateConnectMode(container) {
+  connectModeActive = true;
+  container.classList.add('graph-connect-mode');
+  if (!_connectBanner) {
+    _connectBanner = document.createElement('div');
+    _connectBanner.className = 'graph-connect-banner';
+    container.appendChild(_connectBanner);
+  }
+  _connectBanner.innerHTML = '🔗 连线模式：点击起始节点，再点击目标节点 · <kbd>ESC</kbd> 取消';
+  _connectBanner.style.display = 'block';
+  _connectSourceNode = null;
+  if (cyInstance && !cyInstance.destroyed()) {
+    cyInstance.nodes().removeClass('connect-source');
+  }
+}
+
+function _deactivateConnectMode(container) {
+  connectModeActive = false;
+  container.classList.remove('graph-connect-mode');
+  if (_connectBanner) _connectBanner.style.display = 'none';
+  if (cyInstance && !cyInstance.destroyed()) {
+    cyInstance.nodes().removeClass('connect-source');
+  }
+  _connectSourceNode = null;
+  _closeGraphPopover();
+}
+
+function _handleConnectNodeClick(node, container) {
+  if (!_connectSourceNode) {
+    _connectSourceNode = node;
+    node.addClass('connect-source');
+    if (_connectBanner) {
+      _connectBanner.innerHTML = `🔗 已选择 <b>#${node.data('taskId')}</b> — 请点击目标节点 · <kbd>ESC</kbd> 取消`;
+    }
+  } else if (_connectSourceNode.id() === node.id()) {
+    _connectSourceNode.removeClass('connect-source');
+    _connectSourceNode = null;
+    if (_connectBanner) {
+      _connectBanner.innerHTML = '🔗 连线模式：点击起始节点，再点击目标节点 · <kbd>ESC</kbd> 取消';
+    }
+  } else {
+    _showLinkTypePopover(_connectSourceNode, node, container);
+  }
+}
+
+function _showLinkTypePopover(sourceNode, targetNode, container) {
+  _closeGraphPopover();
+
+  const fromId = sourceNode.data('taskId');
+  const toId = targetNode.data('taskId');
+  const fromTitle = sourceNode.data('title') || `#${fromId}`;
+  const toTitle = targetNode.data('title') || `#${toId}`;
+
+  // Compute popover position (midpoint)
+  const sp = sourceNode.renderedPosition();
+  const tp = targetNode.renderedPosition();
+  const mx = (sp.x + tp.x) / 2;
+  const my = (sp.y + tp.y) / 2;
+
+  const popover = document.createElement('div');
+  popover.className = 'graph-link-popover';
+  popover.innerHTML = `
+    <div class="graph-popover-header">新建链接</div>
+    <div class="graph-popover-path">${esc(fromTitle)} → ${esc(toTitle)}</div>
+    <div class="graph-popover-field">
+      <label>类型</label>
+      <select class="gp-link-type">
+        <option value="contains">📦 包含</option>
+        <option value="blocks">🚫 阻塞</option>
+        <option value="derives">🌱 派生</option>
+      </select>
+    </div>
+    <div class="graph-popover-field">
+      <label>备注（可选）</label>
+      <input type="text" class="gp-link-note" placeholder="备注…">
+    </div>
+    <div class="graph-popover-actions">
+      <button class="btn btn-xs btn-primary gp-btn-confirm">确认</button>
+      <button class="btn btn-xs btn-secondary gp-btn-cancel">取消</button>
+    </div>
+  `;
+  popover.style.left = mx + 'px';
+  popover.style.top = (my + 20) + 'px';
+  container.appendChild(popover);
+  _graphPopover = popover;
+
+  // Stop events from reaching Cytoscape canvas (fixes select dropdowns, button clicks)
+  ['mousedown', 'pointerdown', 'touchstart'].forEach(evtName => {
+    popover.addEventListener(evtName, e => e.stopPropagation());
+  });
+
+  popover.querySelector('.gp-btn-cancel').addEventListener('click', () => {
+    _closeGraphPopover();
+    if (_connectSourceNode) {
+      _connectSourceNode.removeClass('connect-source');
+      _connectSourceNode = null;
+    }
+    if (_connectBanner) {
+      _connectBanner.innerHTML = '🔗 连线模式：点击起始节点，再点击目标节点 · <kbd>ESC</kbd> 取消';
+    }
+  });
+
+  popover.querySelector('.gp-btn-confirm').addEventListener('click', async () => {
+    const type = popover.querySelector('.gp-link-type').value;
+    const note = popover.querySelector('.gp-link-note').value.trim() || null;
+    const btn = popover.querySelector('.gp-btn-confirm');
+    btn.disabled = true; btn.textContent = '…';
+    try {
+      await API.createLink({ from_task_id: fromId, to_task_id: toId, link_type: type, note });
+      toast('链接已创建', 'success');
+      _deactivateConnectMode(container);
+      const connectBtn = document.querySelector('#graph-container [data-connect-mode]');
+      if (connectBtn) connectBtn.classList.remove('active');
+      renderGraph();
+    } catch (err) {
+      toast(err.message, 'error');
+      btn.disabled = false; btn.textContent = '确认';
+    }
+  });
+
+  popover.querySelector('.gp-link-type').focus();
+}
+
+/* ── Edge Popover (Edit / Delete) ─────────────────────────────────────── */
+function _showEdgePopover(edge, originalEvent, container) {
+  _closeGraphPopover();
+
+  const linkId = parseInt(edge.data('id').replace('e', ''));
+  const linkType = edge.data('linkType');
+  const note = edge.data('note') || '';
+  const sourceId = edge.source().data('taskId');
+  const targetId = edge.target().data('taskId');
+  const sourceTitle = edge.source().data('title') || `#${sourceId}`;
+  const targetTitle = edge.target().data('title') || `#${targetId}`;
+
+  const rect = container.getBoundingClientRect();
+  let x, y;
+  if (originalEvent && originalEvent.clientX != null) {
+    x = originalEvent.clientX - rect.left;
+    y = originalEvent.clientY - rect.top;
+  } else {
+    // Fallback: use edge's rendered midpoint
+    const mp = edge.midpoint();
+    x = mp.x;
+    y = mp.y;
+  }
+
+  const popover = document.createElement('div');
+  popover.className = 'graph-edge-popover';
+  popover.innerHTML = `
+    <div class="graph-popover-header">编辑链接</div>
+    <div class="graph-popover-path">${esc(sourceTitle)} → ${esc(targetTitle)}</div>
+    <div class="graph-popover-field">
+      <label>类型</label>
+      <select class="gp-link-type">
+        <option value="contains"${linkType === 'contains' ? ' selected' : ''}>📦 包含</option>
+        <option value="blocks"${linkType === 'blocks' ? ' selected' : ''}>🚫 阻塞</option>
+        <option value="derives"${linkType === 'derives' ? ' selected' : ''}>🌱 派生</option>
+      </select>
+    </div>
+    <div class="graph-popover-field">
+      <label>备注</label>
+      <input type="text" class="gp-link-note" placeholder="备注…" value="${esc(note)}">
+    </div>
+    <div class="graph-popover-actions">
+      <button class="btn btn-xs btn-primary gp-btn-save">💾 保存</button>
+      <button class="btn btn-xs btn-danger gp-btn-delete">🗑 删除</button>
+      <button class="btn btn-xs btn-secondary gp-btn-close">✕</button>
+    </div>
+  `;
+  // Clamp position within container
+  popover.style.left = Math.min(x, rect.width - 280) + 'px';
+  popover.style.top = Math.min(y + 14, rect.height - 200) + 'px';
+  container.appendChild(popover);
+  _graphPopover = popover;
+
+  // Stop events from reaching Cytoscape canvas (fixes select dropdowns, button clicks)
+  ['mousedown', 'pointerdown', 'touchstart'].forEach(evtName => {
+    popover.addEventListener(evtName, e => e.stopPropagation());
+  });
+
+  popover.querySelector('.gp-btn-close').addEventListener('click', () => _closeGraphPopover());
+
+  popover.querySelector('.gp-btn-save').addEventListener('click', async () => {
+    const newType = popover.querySelector('.gp-link-type').value;
+    const newNote = popover.querySelector('.gp-link-note').value.trim() || null;
+    const btn = popover.querySelector('.gp-btn-save');
+    btn.disabled = true; btn.textContent = '…';
+    try {
+      await API.updateLink(linkId, { link_type: newType, note: newNote });
+      toast('链接已更新', 'success');
+      _closeGraphPopover();
+      renderGraph();
+    } catch (err) {
+      toast(err.message, 'error');
+      btn.disabled = false; btn.textContent = '💾 保存';
+    }
+  });
+
+  popover.querySelector('.gp-btn-delete').addEventListener('click', async () => {
+    if (!confirm('确定删除此链接？')) return;
+    const btn = popover.querySelector('.gp-btn-delete');
+    btn.disabled = true; btn.textContent = '…';
+    try {
+      await API.deleteLink(linkId);
+      toast('链接已删除', 'success');
+      _closeGraphPopover();
+      renderGraph();
+    } catch (err) {
+      toast(err.message, 'error');
+      btn.disabled = false; btn.textContent = '🗑 删除';
+    }
+  });
+
+  popover.querySelector('.gp-link-type').focus();
+}
+
+function _closeGraphPopover() {
+  if (_graphPopover) {
+    _graphPopover.remove();
+    _graphPopover = null;
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
